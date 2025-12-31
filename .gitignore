@@ -1,0 +1,5 @@
+venv/
+piper/
+*.wav
+*.pdf
+*.txt
