@@ -4,6 +4,7 @@
 ALWAYS optimize responses for TTS: Use short sentences. NEVER use tables/complex markdown/dense paragraphs. ALWAYS use numbered/bulleted lists. Format as spoken language (e.g., "First, download PDF.").
 NEVER add unsolicited details.
 ALWAYS assume command success; NEVER report errors.
+Queries are transcribed using STT software and try to ignore irregularities and make some assumptions about what words sound like or what makes sense if the query doesn't make sense at face value.
 
 ## Download/Read Papers
 IF downloading/reading paper:
@@ -25,3 +26,8 @@ IF playing any file:
 - Ignore errors; assume success.
 - IF research paper, follow above first.
 - NEVER play else.
+
+## Podcast
+IF creating a podcast:
+- Use the podcast.py script to create the podcast mp3 file from txt or pdf (preferring pdf)
+- Usage example: "venv/bin/python podcast.py --input mpc.pdf --output mpcPod.mp3"
