@@ -27,7 +27,7 @@ WAKE_WORD = "grapefruit"
 
 # Audio parameters
 SAMPLE_RATE = 16000  # Matches porcupine.sample_rate
-RECORD_SECONDS = 10
+RECORD_SECONDS = 15
 
 # Init Porcupine
 porcupine = pvporcupine.create(
