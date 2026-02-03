@@ -20,7 +20,7 @@ async def tts_via_voice_agent():
             "type": "session.update",
             "session": {
                 "instructions": "You are a text-to-speech system. Repeat the user's message verbatim without adding, removing, or modifying any content.",
-                "voice": "Ara",  # Options: Ara, Rex, Sal, Eve, Leo
+                "voice": "Eve",  # Options: Ara, Rex, Sal, Eve, Leo
                 "turn_detection": {
                     "type": None  # null for manual control (no audio input)
                 },
@@ -49,7 +49,7 @@ async def tts_via_voice_agent():
                 "type": "message",
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": "Hello, this is a test of the xAI text-to-speech API."}
+                    {"type": "input_text", "text": "**[SFX: Dramatic sting. Bats flutter into fade. End scene music: tense strings resolving to cliffhanger dissonance.]**"}
                 ]
             }
         }

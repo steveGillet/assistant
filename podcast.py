@@ -147,7 +147,7 @@ Hosts: Rachel (female, enthusiastic expert) and Roger (male, analytical co-host)
     return Script(**content)
 
 # Helper to split long text into chunks at sentence boundaries, and further split long sentences at word boundaries
-def split_long_text(text: str, max_chars: int = 1000):  # Increased for Grok
+def split_long_text(text: str, max_chars: int = 4000):  # Increased for Grok
     if not text.strip():
         return []
     
@@ -197,7 +197,7 @@ async def script_to_audio_async(script: Script, api_key: str) -> AudioSegment:
     for line in script.script:
         voice = "ara" if line.speaker == "Rachel" else "Rex"
         
-        text_chunks = split_long_text(verbalize_math(line.text))
+        text_chunks = split_long_text(line.text)
         print(f"Split {len(line.text)} chars into {len(text_chunks)} chunks for {line.speaker} ({voice})")
         
         line_wav_segments = []
@@ -213,7 +213,7 @@ async def script_to_audio_async(script: Script, api_key: str) -> AudioSegment:
                         "type": "session.update",
                         "session": {
                             "instructions": (
-                                "You are a voice actor in a podcast. Speak only the exact text provided in the user message, "
+                                "You are a verbatim TTS reader. Output ONLY the exact input text as speech. No paraphrase, improv, summary, explanation, or changes. Word-for-word exact read. "
                                 "without adding, removing, changing, or commenting on any content. Do not add introductions, "
                                 "summaries, explanations, or any extra words whatsoever. Output only the spoken audio of the text."
                             ),
