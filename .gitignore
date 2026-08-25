@@ -1,5 +1,8 @@
 venv/
 piper/
+__pycache__/
+.pytest_cache/
+.grok_cli_session
 *.wav
 *.pdf
 *.txt
@@ -9,3 +12,8 @@ piper/
 *.webm.part
 *.png
 *.jpg
+*.raw
+generated/**
+!generated/.gitkeep
+conversations/**
+!conversations/.gitkeep

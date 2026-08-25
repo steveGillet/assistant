@@ -1,0 +1,14 @@
+[project]
+name = "grapefruit"
+version = "0.2.0"
+description = "Local Grok Voice assistant with official Grok CLI computer use"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = ["-q", "-m", "not live"]
+markers = [
+    "live: hits xAI API or official grok CLI (opt in with pytest -m live)",
+]

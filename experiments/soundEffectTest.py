@@ -7,7 +7,7 @@ import base64
 from pydub import AudioSegment
 
 async def generate_sound_effect(prompt: str, api_key: str, voice: str = "mara") -> AudioSegment:
-    uri = "wss://api.x.ai/v1/realtime"
+    uri = "wss://api.x.ai/v1/realtime?model=grok-voice-latest"
     audio_data = b""
     retry_count = 0
     max_retries = 3
@@ -97,9 +97,13 @@ async def generate_sound_effect(prompt: str, api_key: str, voice: str = "mara") 
 
 async def main():
     # Get API key
-    api_key = os.environ.get("GROK_API_KEY")
-    if not api_key:
-        raise ValueError("GROK_API_KEY environment variable is required")
+    from pathlib import Path
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from grapefruit.env import get_xai_api_key
+
+    api_key = get_xai_api_key()
 
     # Test prompt for sound effect (change this to test different effects)
     test_prompt = "Make a realistic explosion sound: Boom! Kaboom!"

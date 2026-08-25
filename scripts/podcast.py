@@ -1,36 +1,24 @@
 import argparse
 import json
-import requests
-from pathlib import Path
-from pypdf import PdfReader
-from pydantic import BaseModel
-from typing import List, Literal
-import io
-from pydub import AudioSegment
 import os
-import subprocess
 import re
-import asyncio
-import websockets
-import base64
-import time  # For delays
+import subprocess
+import sys
+from pathlib import Path
+from typing import List, Literal
 
-# Pydantic models for structured script output
-def verbalize_math(text: str) -> str:
-    replacements = {
-        r'\+': ' plus ',
-        r'\*': ' times ',
-        r'/': ' divided by ',
-        r'=': ' equals ',
-        r'\^2': ' squared',
-        r'\^3': ' cubed',
-        r'\^': ' to the power of ',
-        r'\(': ' open parenthesis ',
-        r'\)': ' close parenthesis ',
-    }
-    for pattern, repl in replacements.items():
-        text = re.sub(pattern, repl, text)
-    return text
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import requests
+from pydantic import BaseModel
+from pydub import AudioSegment
+from pypdf import PdfReader
+
+from grapefruit.env import get_xai_api_key
+from grapefruit.paths import GENERATED, ensure_dirs
+from grapefruit.tts import synthesize_text
+
+TEXT_MODEL = os.getenv("GROK_TEXT_MODEL", "grok-4.6")
 
 class LineItem(BaseModel):
     speaker: Literal["Rachel", "Roger"]
@@ -127,7 +115,7 @@ Hosts: Rachel (female, enthusiastic expert) and Roger (male, analytical co-host)
         user_content = content[:100000]
     
     payload = {
-        "model": "grok-4",
+        "model": TEXT_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
@@ -146,172 +134,39 @@ Hosts: Rachel (female, enthusiastic expert) and Roger (male, analytical co-host)
     content = json.loads(response.json()["choices"][0]["message"]["content"])
     return Script(**content)
 
-# Helper to split long text into chunks at sentence boundaries, and further split long sentences at word boundaries
-def split_long_text(text: str, max_chars: int = 4000):  # Increased for Grok
-    if not text.strip():
-        return []
-    
-    # Split into sentences using lookbehind for punctuation followed by space
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    
-    # Filter out empty sentences
-    sentences = [s.strip() for s in sentences if s.strip()]
-    
-    chunks = []
-    current_chunk = ""
-    
-    for sentence in sentences:
-        # If the sentence itself is longer than max_chars, split it into word-based subchunks
-        if len(sentence) > max_chars:
-            words = sentence.split()
-            sub_chunk = ""
-            for word in words:
-                if len(sub_chunk) + len(word) + (1 if sub_chunk else 0) > max_chars:
-                    if sub_chunk:
-                        chunks.append(sub_chunk.strip())
-                    sub_chunk = word
-                else:
-                    sub_chunk += (" " + word) if sub_chunk else word
-            if sub_chunk:
-                chunks.append(sub_chunk.strip())
-        else:
-            # Otherwise, add to current_chunk as before
-            if len(current_chunk) + len(sentence) + (1 if current_chunk else 0) > max_chars:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = sentence
-            else:
-                current_chunk += (" " + sentence) if current_chunk else sentence
-    
-    if current_chunk:
-        chunks.append(current_chunk.strip())
-    
-    return chunks
-
-# Helper function to generate audio from a single script segment using Grok Voice API
-async def script_to_audio_async(script: Script, api_key: str) -> AudioSegment:
-    uri = "wss://api.x.ai/v1/realtime"
+def script_to_audio(script: Script, api_key: str) -> AudioSegment:
     audio_segments = []
     pause = AudioSegment.silent(duration=250)
-    
+
     for line in script.script:
-        voice = "ara" if line.speaker == "Rachel" else "Rex"
-        
-        text_chunks = split_long_text(line.text)
-        print(f"Split {len(line.text)} chars into {len(text_chunks)} chunks for {line.speaker} ({voice})")
-        
-        line_wav_segments = []
-        retry_count = 0
-        max_retries = 3
-        
-        while retry_count < max_retries:
-            try:
-                async with websockets.connect(uri, additional_headers={"Authorization": f"Bearer {api_key}"}) as websocket:
-                    await websocket.recv()
-                    
-                    session_message = {
-                        "type": "session.update",
-                        "session": {
-                            "instructions": (
-                                "You are a verbatim TTS reader. Output ONLY the exact input text as speech. No paraphrase, improv, summary, explanation, or changes. Word-for-word exact read. "
-                                "without adding, removing, changing, or commenting on any content. Do not add introductions, "
-                                "summaries, explanations, or any extra words whatsoever. Output only the spoken audio of the text."
-                            ),
-                            "turn_detection": {"type": None},
-                            "audio": {
-                                "output": {
-                                    "format": {"type": "audio/pcm", "rate": 24000}
-                                }
-                            },
-                            "voice": voice
-                        }
-                    }
-                    await websocket.send(json.dumps(session_message))
-                    
-                    while True:
-                        msg = await websocket.recv()
-                        data = json.loads(msg)
-                        if data["type"] == "session.updated":
-                            break
-                        elif data["type"] == "error":
-                            print("Error updating session:", data)
-                            raise Exception("Session update error")
-                    
-                    for chunk in text_chunks:
-                        text_input = {
-                            "type": "conversation.item.create",
-                            "item": {
-                                "type": "message",
-                                "role": "user",
-                                "content": [{"type": "input_text", "text": chunk}]
-                            }
-                        }
-                        await websocket.send(json.dumps(text_input))
-                        
-                        generate_message = {"type": "response.create", "response": {}}
-                        await websocket.send(json.dumps(generate_message))
-                        
-                        audio_data = b""
-                        while True:
-                            msg = await websocket.recv()
-                            data = json.loads(msg)
-                            if data["type"] == "response.output_audio.delta":
-                                audio_data += base64.b64decode(data["delta"])
-                            elif data["type"] == "response.output_audio.done":
-                                break
-                            elif data["type"] == "error":
-                                print("Error:", data)
-                                raise Exception("Audio generation error")
-                        
-                        if audio_data:
-                            segment = AudioSegment.from_raw(
-                                io.BytesIO(audio_data),
-                                sample_width=2,
-                                frame_rate=24000,
-                                channels=1
-                            )
-                            line_wav_segments.append(segment)
-                        
-                        await asyncio.sleep(0.5)
-                    
-                    break  # Success, exit retry loop
-            
-            except Exception as e:
-                retry_count += 1
-                print(f"Connection error for line: {e}. Retrying {retry_count}/{max_retries}...")
-                await asyncio.sleep(2 ** retry_count)
-        
-        if retry_count >= max_retries:
-            print("Max retries exceeded for this line. Skipping.")
-            continue
-        
-        if line_wav_segments:
-            full_line_segment = line_wav_segments[0]
-            for seg in line_wav_segments[1:]:
-                full_line_segment = full_line_segment.append(seg, crossfade=50)
-            audio_segments.append(full_line_segment)
+        voice = "ara" if line.speaker == "Rachel" else "rex"
+        print(f"TTS {line.speaker} ({voice}): {len(line.text)} chars")
+        segment = synthesize_text(
+            line.text, voice=voice, language="en", api_key=api_key
+        )
+        if len(segment) > 0:
+            audio_segments.append(segment)
             audio_segments.append(pause)
-    
+
     if audio_segments:
         audio_segments.pop()
-    
-    full_segment_audio = sum(audio_segments) if audio_segments else AudioSegment.empty()
-    
-    return full_segment_audio
-
-def script_to_audio(script: Script, api_key: str) -> AudioSegment:
-    return asyncio.run(script_to_audio_async(script, api_key))
+    return sum(audio_segments) if audio_segments else AudioSegment.empty()
 
 # Main CLI entrypoint
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate long, section-by-section podcast from PDF or TXT using Grok API and Grok Voice API")
+    parser = argparse.ArgumentParser(
+        description="Generate a section-by-section podcast from PDF or TXT using Grok 4.6 and xAI TTS"
+    )
     parser.add_argument("--input", required=True, help="Path to input file (PDF or TXT)")
-    parser.add_argument("--output", default="podcast.mp3", help="Output audio file")
+    parser.add_argument(
+        "--output",
+        default=str(GENERATED / "podcast.mp3"),
+        help="Output audio file",
+    )
     args = parser.parse_args()
-    
-    xai_key = os.getenv("GROK_API_KEY")
-    if not xai_key:
-        raise ValueError("GROK_API_KEY not set")
+    ensure_dirs()
+
+    xai_key = get_xai_api_key()
     
     sections, full_text = extract_sections(args.input)
     print(f"Detected {len(sections)} sections")

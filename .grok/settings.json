@@ -1,3 +1,6 @@
 {
-  "model": "grok-4-latest"
+  "deprecated": "Community grok CLI settings.json is unused. Official Grok CLI reads AGENTS.md and ~/.grok/config.toml.",
+  "voice_model": "grok-voice-latest",
+  "text_model": "grok-4.6",
+  "cli": "grok"
 }
