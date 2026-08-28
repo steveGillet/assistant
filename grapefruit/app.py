@@ -57,6 +57,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Allow voice to interrupt assistant playback (off: mic is muted while speaking)",
     )
+    parser.add_argument(
+        "--idle-sec",
+        type=int,
+        default=None,
+        help=(
+            "Close the Voice session after this many seconds with no user input "
+            "(default 600, or GROK_VOICE_IDLE_SEC). 0 disables."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -92,6 +101,7 @@ def main(argv: list[str] | None = None) -> None:
         mic_device=args.mic_device,
         mute_mic_while_speaking=not args.barge_in,
         voice_barge_in=args.barge_in,
+        idle_sec=args.idle_sec,
     )
 
     if args.text_only or args.no_wake:
@@ -99,6 +109,7 @@ def main(argv: list[str] | None = None) -> None:
             run_session(
                 api_key,
                 voice,
+                park_in_process=True,
                 **session_kwargs,
             )
         )

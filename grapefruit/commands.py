@@ -9,13 +9,14 @@ from grapefruit.memory import (
     format_conversation_list,
     list_conversations,
     load_restore_text,
+    recap_from_restore_text,
 )
-from grapefruit.protocol import is_quit_command
+from grapefruit.protocol import is_mute_command, is_quit_command, is_unmute_command
 
 
 @dataclass
 class CommandResult:
-    kind: str  # passthrough | quit | print | restore | save | help
+    kind: str  # passthrough | quit | print | restore | save | help | mute | unmute | status
     text: str = ""
     restore_body: str = ""
     restore_title: str = ""
@@ -34,18 +35,31 @@ def help_text() -> str:
         "Commands:\n"
         "  /quit            end this session (or exit while idle)\n"
         "  /conversations   list saved conversations\n"
-        "  /restore         list saved chats\n"
+        "  /restore         list saved chats (skips this session)\n"
         "  /restore 1       restore by list number\n"
-        "  /restore pi      restore by topic words (not the filename)\n"
+        "  /restore pi      restore by topic words, never the current chat name\n"
+        "  /resume          same as /restore; while muted, resumes this session\n"
+        "  /mute            park Voice; jobs keep running (/pause is the same)\n"
+        "  /unmute          reopen this session and hear a recap\n"
+        "  /status          show running jobs\n"
         "  /save [title]    set the title of the current conversation\n"
         "Anything else is sent to Grok Voice as a user turn."
     )
 
 
-def handle_line(text: str, log: ConversationLog | None = None) -> CommandResult:
+def handle_line(
+    text: str,
+    log: ConversationLog | None = None,
+    *,
+    muted: bool = False,
+) -> CommandResult:
     raw = (text or "").strip()
     if is_quit_command(raw):
         return CommandResult(kind="quit")
+    if is_unmute_command(raw):
+        return CommandResult(kind="unmute", text="Unmuting this session.")
+    if is_mute_command(raw):
+        return CommandResult(kind="mute", text="Muting voice. Jobs keep running.")
     parsed = parse_slash(raw)
     if parsed is None:
         return CommandResult(kind="passthrough", text=raw)
@@ -54,20 +68,36 @@ def handle_line(text: str, log: ConversationLog | None = None) -> CommandResult:
         return CommandResult(kind="quit")
     if cmd in {"help", "h", "?"}:
         return CommandResult(kind="help", text=help_text())
+    if cmd in {"mute", "pause"}:
+        return CommandResult(kind="mute", text="Muting voice. Jobs keep running.")
+    if cmd in {"unmute", "unpause"}:
+        return CommandResult(kind="unmute", text="Unmuting this session.")
+    if cmd == "status":
+        return CommandResult(kind="status")
+    current_ids = [log.meta.id] if log is not None and log.meta is not None else None
     if cmd in {"conversations", "list", "history"}:
         return CommandResult(
             kind="print",
-            text=format_conversation_list(list_conversations()),
+            text=format_conversation_list(list_conversations(exclude_ids=current_ids)),
         )
-    if cmd in {"restore", "load"}:
-        body, meta = load_restore_text(arg)
-        if meta is None and not arg:
-            return CommandResult(kind="print", text=body)
+    if cmd in {"restore", "load", "resume"}:
+        if muted and not arg:
+            return CommandResult(kind="unmute", text="Unmuting this session.")
+        exclude = current_ids
+        if arg and not arg.isdigit() and log is not None:
+            exclude = log.exclude_ids()
+        body, meta = load_restore_text(arg, exclude_ids=exclude)
         if meta is None:
             return CommandResult(kind="print", text=body)
+        if log is not None:
+            log.note_restored(meta.id)
+        recap = recap_from_restore_text(body)
+        notice = f"Restored {meta.title!r} from {meta.started[:10]}."
+        if recap:
+            notice = f"{notice}\n{recap}"
         return CommandResult(
             kind="restore",
-            text=f"Restoring {meta.title!r} from {meta.started[:10]}.",
+            text=notice,
             restore_body=body,
             restore_title=meta.title,
         )

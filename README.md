@@ -67,7 +67,7 @@ Logs live in `conversations/` (JSONL). Older turns are compacted when the estima
 
 ## Generated files
 
-New papers, audio, and downloads go in **`generated/`**, not `assets/` and not the repo root. `play_file` and Grok CLI look there first for a bare filename.
+Grapefruit-local papers, audio, and downloads go in **`generated/`**, not `assets/` and not the repo root. Bare filenames are looked up in `generated/`, then cwd, then `assets/`. Work on another project or over SSH stays there; do not copy those files into `generated/` unless asked.
 
 ## Layout
 

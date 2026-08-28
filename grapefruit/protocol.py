@@ -8,10 +8,41 @@ load MCP servers from ~/.grok/config.toml.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 QUIT_COMMANDS = frozenset(
     {"/quit", "/exit", "/stop", "/goodbye", "quit", "exit", "/q"}
+)
+MUTE_PHRASES = frozenset(
+    {
+        "mute",
+        "go quiet",
+        "be quiet",
+        "go mute",
+        "i'll be back",
+        "ill be back",
+        "i will be back",
+        "going quiet",
+        "quiet mode",
+        "mute mode",
+        "go into quiet mode",
+        "go into mute mode",
+        "into quiet mode",
+        "into mute mode",
+    }
+)
+MUTE_TOOL_NAMES = frozenset({"mute_conversation", "mute"})
+UNMUTE_PHRASES = frozenset(
+    {
+        "unmute",
+        "unpause",
+        "i'm back",
+        "im back",
+        "i am back",
+        "okay i'm back",
+        "ok i'm back",
+    }
 )
 
 VOICE_MODEL = "grok-voice-latest"
@@ -66,8 +97,23 @@ TOOLS = [
     },
     {
         "type": "function",
+        "name": "mute_conversation",
+        "description": (
+            "Park Voice when the user wants quiet, mute, pause, quiet mode, "
+            "or says I'll be back. The client closes the Voice socket. Jobs "
+            "keep running. Do not speak after calling this. Do not use this "
+            "for goodbye, stop, or /quit, and not for muting a TV or other device."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "type": "function",
         "name": "end_conversation",
-        "description": "End the session when the user says stop, goodbye, or types /quit.",
+        "description": (
+            "End the session when the user says goodbye, stop, or types /quit. "
+            "Do not use this for mute, quiet, pause, quiet mode, or I'll be back. "
+            "Those must call mute_conversation instead."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -75,16 +121,21 @@ TOOLS = [
         "name": "restore_conversation",
         "description": (
             "Load a previously saved conversation into this session. "
-            "Use when the user asks to restore, resume, or continue an earlier "
-            "chat (for example 'the robot manipulators conversation yesterday'). "
-            "Pass a short search query; omit query to list recent conversations."
+            "Use when the user asks to restore, resume, or continue an earlier chat. "
+            "The query MUST be the topic the user named (for example "
+            "'robot manipulators yesterday' or 'raspberry pi'). "
+            "NEVER pass this session's title, the current chat name, or filler "
+            "like 'resume' or 'this conversation'. Omit query to list other chats."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Title, topic, or date hint such as 'robot manipulators yesterday'.",
+                    "description": (
+                        "Topic words the user said, or a list number like '2'. "
+                        "Not the current conversation name."
+                    ),
                 }
             },
         },
@@ -104,15 +155,22 @@ Generated files: {generated}
 Helper scripts: {scripts}
 
 The user may speak into the microphone or type in the terminal. Treat typed
-text the same as speech. Slash commands like /restore are handled locally;
-if the user asks in speech to restore an earlier chat, call `restore_conversation`.
+text the same as speech. Slash commands like /restore, /mute, and /unmute are
+handled locally; if the user asks in speech to restore an earlier chat, call
+`restore_conversation` with the topic they named, never this session's title.
+If they say mute, go quiet, go into quiet mode, or I'll be back, call
+`mute_conversation`. The client parks Voice. Jobs keep running. Do not say
+goodbye. That is not the end of the session.
 
 ## Objective
 Have a natural spoken conversation. When the user wants computer work done —
 files, downloads, research papers, scripts, podcasts, playing media, or shell
 commands — call `run_grok`. When they want a file played right now, call
 `play_file`. For current events, use `web_search` or `x_search`.
-Put new files in {generated} unless the user names another path.
+Grapefruit-local papers, audio, and downloads go in {generated}. If the user
+names a file without a path, look there, then the working directory, then
+assets, before downloading. If the work is in another directory or on another
+machine, keep files there. Do not copy them into {generated} unless asked.
 
 ## Conversation Flow
 Listen first. Answer short questions yourself.
@@ -120,8 +178,15 @@ Call `run_grok` for anything that needs the filesystem, helper scripts, or
 multi-step work. Pass a clear task. Say one short line first, such as
 "I'll have Grok take care of that." then call the tool immediately.
 Call `play_file` for audio or video the user wants to hear now.
-If they ask to restore or continue an earlier conversation, call `restore_conversation`.
-If they say stop, goodbye, or type /quit, call `end_conversation`.
+If they ask to restore or continue an earlier conversation, call `restore_conversation`
+with their topic words only. If they do not name a topic, omit query so they get a list.
+Never pass the current conversation name as the query.
+Do not call `restore_conversation` again after a chat was just loaded unless
+the user asks for a different earlier chat. Nested restore dumps in context
+are history, not a new request.
+If they say goodbye, stop, or type /quit, call `end_conversation`.
+If they want quiet, mute, pause, or I'll be back, call `mute_conversation`.
+Never call `end_conversation` for mute, quiet, pause, quiet mode, or I'll be back.
 
 Helper scripts (via AGENTS.md / `run_grok`):
 - scripts/extractAudio.py — generated/paper.txt to generated/extracted_audio.wav
@@ -143,15 +208,80 @@ Vary phrasing. Do not repeat the same sentence twice.
 ## CRITICAL INSTRUCTIONS
 ALWAYS call `run_grok` for computer work. NEVER pretend you ran a command.
 ALWAYS call `play_file` to play local audio or video. Do not describe playing it.
-ALWAYS call `restore_conversation` when the user wants an earlier chat loaded.
-ALWAYS call `end_conversation` when the user wants to stop.
+ALWAYS call `restore_conversation` when the user wants an earlier chat loaded,
+using the topic they said, never this session's title.
+ALWAYS call `mute_conversation` when the user wants Voice quiet, muted, paused, or parked.
+ALWAYS call `end_conversation` only for goodbye, stop, or /quit. Never for quiet or mute.
 Treat terminal text and voice as the same conversation.
-Write new files under the generated directory.
+Write Grapefruit-local files under the generated directory. For other
+directories or remote machines, edit in place and do not copy files home.
 {extra_block}"""
+
+
+def _normalize_utterance(text: str) -> str:
+    t = (text or "").strip().lower()
+    t = t.replace("’", "'")
+    t = re.sub(r"[^a-z0-9'\s.!?]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+_MUTE_SENTENCE = re.compile(
+    r"^(?:please\s+|just\s+)?"
+    r"(?:can you\s+|could you\s+|would you\s+|i want you to\s+|i'd like you to\s+)?"
+    r"(?:go\s+(?:into\s+)?|be\s+|stay\s+)?"
+    r"(?:mute|quiet)"
+    r"(?:\s+mode)?(?:\s+now)?(?:\s+please)?$"
+)
+_UNMUTE_SENTENCE = re.compile(
+    r"^(?:okay\s+|ok\s+|please\s+)?"
+    r"(?:i(?:'m| am)\s+back|"
+    r"(?:can you\s+|could you\s+)?(?:unmute|unpause)(?:\s+now)?(?:\s+please)?)$"
+)
+
+
+def _mute_chunks(text: str) -> list[str]:
+    t = _normalize_utterance(text).rstrip(".!?")
+    chunks = [t]
+    chunks.extend(p.strip(" .!?") for p in re.split(r"[.!?]+", t) if p.strip())
+    chunks.extend(
+        p.strip(" .!?")
+        for p in re.split(r"\b(?:and then|then|,)\b", t)
+        if p.strip()
+    )
+    return [c for c in chunks if c]
 
 
 def is_quit_command(text: str) -> bool:
     return (text or "").strip().lower() in QUIT_COMMANDS
+
+
+def is_mute_command(text: str) -> bool:
+    raw = (text or "").strip().lower()
+    if raw in {"/mute", "/pause"}:
+        return True
+    t = _normalize_utterance(raw)
+    if not t or re.search(r"\bunmute\b", t) or re.search(r"\bunpause\b", t):
+        return False
+    for chunk in _mute_chunks(raw):
+        if chunk in MUTE_PHRASES or _MUTE_SENTENCE.fullmatch(chunk):
+            return True
+        words = chunk.split()
+        for i in range(len(words)):
+            tail = " ".join(words[i:])
+            if tail in MUTE_PHRASES or _MUTE_SENTENCE.fullmatch(tail):
+                return True
+    return False
+
+
+def is_unmute_command(text: str) -> bool:
+    raw = (text or "").strip().lower()
+    if raw in {"/unmute", "/unpause"}:
+        return True
+    t = _normalize_utterance(raw).rstrip(".!?")
+    if t in UNMUTE_PHRASES:
+        return True
+    return bool(_UNMUTE_SENTENCE.fullmatch(t))
 
 
 def user_text_event(text: str) -> dict:

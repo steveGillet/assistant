@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .grok_cli_session
 *.wav
+!assets/ack.wav
 *.pdf
 *.txt
 *.mp3

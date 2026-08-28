@@ -27,7 +27,12 @@ def vosk_model_dir() -> Path:
 
 
 def ack_wav() -> Path | None:
-    for candidate in (ASSETS / "ack.wav", ROOT / "ack.wav"):
+    for candidate in (
+        ASSETS / "ack.wav",
+        ROOT / "ack.wav",
+        ROOT / "jingle.wav",
+        ASSETS / "jingle.wav",
+    ):
         if candidate.is_file():
             return candidate
     return None

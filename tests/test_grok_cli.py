@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from types import SimpleNamespace
 
 from grapefruit.grok_cli import (
     apply_stream_line,
     build_grok_cmd,
+    looks_foreign_work,
     parse_cli_output,
     run_grok,
+    summary_rules_for_task,
+    _timeout_message,
 )
 
 
@@ -45,6 +49,9 @@ def test_build_grok_cmd_resume_and_yolo(tmp_path):
     assert "--output-format" in cmd
     assert cmd[cmd.index("--cwd") + 1] == str(tmp_path)
     assert cmd[cmd.index("--resume") + 1] == "sid-1"
+    assert "--fork-session" in cmd
+    assert "--leader-socket" in cmd
+    assert "--max-turns" not in cmd
 
 
 def test_streaming_json_collects_text_and_session():
@@ -107,3 +114,53 @@ def test_run_grok_background_uses_popen(monkeypatch, tmp_path):
     )
     assert "background" in msg.lower()
     assert called["cmd"][2] == "make a podcast"
+
+
+def test_looks_foreign_work_detects_ssh_and_outside_paths(tmp_path):
+    assert looks_foreign_work("ssh steve@192.168.1.114 and read gyro.py")
+    assert looks_foreign_work("edit the unit file on the Pi")
+    assert looks_foreign_work("write into /home/steve/Desktop/twoWheeledRedemption/gyro.py")
+    assert not looks_foreign_work("download the manipulator papers")
+    inside = tmp_path / "generated" / "paper.pdf"
+    assert not looks_foreign_work(f"play {inside}", root=tmp_path)
+
+
+def test_summary_rules_remind_remote_not_to_copy_home():
+    local = summary_rules_for_task("download the paper")
+    assert "generated/" in local
+    assert "look in generated/" in local
+    remote = summary_rules_for_task("ssh into the pi and edit gyro.py")
+    assert "Edit in place" in remote
+    assert "Do not copy files into generated/" in remote
+
+
+def test_build_grok_cmd_uses_task_placement_rules(tmp_path):
+    cmd = build_grok_cmd(
+        "/usr/bin/grok",
+        "ssh steve@host and fix controller.py",
+        cwd=tmp_path,
+    )
+    rules = cmd[cmd.index("--rules") + 1]
+    assert "Edit in place" in rules
+
+
+def test_timeout_message_mentions_credits():
+    msg = _timeout_message(600)
+    assert "timed out" in msg.lower()
+    assert "credit" in msg.lower()
+
+
+def test_run_grok_timeout_is_handled(monkeypatch, tmp_path):
+    monkeypatch.setattr("grapefruit.grok_cli.find_grok_bin", lambda: "/usr/bin/grok")
+
+    def fake_run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, 600)
+
+    result = run_grok(
+        "long job",
+        cwd=tmp_path,
+        session_path=tmp_path / "session",
+        runner=fake_run,
+    )
+    assert "timed out" in result.lower()
+    assert "credit" in result.lower()

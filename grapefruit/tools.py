@@ -8,6 +8,7 @@ from pathlib import Path
 from grapefruit.grok_cli import run_grok
 from grapefruit.memory import load_restore_text
 from grapefruit.paths import GENERATED, ROOT, ack_wav
+from grapefruit.protocol import MUTE_TOOL_NAMES
 from grapefruit.search import web_search, x_search
 
 
@@ -61,7 +62,11 @@ def play_file(path: str, *, cwd: str | None = None) -> str:
     return f"Playing {resolved}"
 
 
-def handle_tool(name: str, args: dict) -> tuple[str, bool]:
+def handle_tool(
+    name: str,
+    args: dict,
+    exclude_ids: list[str] | None = None,
+) -> tuple[str, bool]:
     if name == "run_grok":
         return run_grok(args.get("task", ""), bool(args.get("background", False))), False
     if name == "play_file":
@@ -71,14 +76,21 @@ def handle_tool(name: str, args: dict) -> tuple[str, bool]:
     if name in {"x_search", "xsearch"}:
         return x_search(args.get("query") or args.get("q") or ""), False
     if name == "restore_conversation":
-        body, meta = load_restore_text(args.get("query") or "")
+        query = args.get("query") or args.get("q") or ""
+        body, meta = load_restore_text(query, exclude_ids=exclude_ids)
         if meta is None:
             return body, False
         return (
             "Prior conversation loaded. Use it as context. "
-            "Confirm the topic in one short sentence. Do not read the log aloud.\n\n"
+            "Tell the user it restored, then recap the last user line and last reply "
+            "in one or two short sentences. Do not read the rest of the log aloud. "
+            "Do not use this session's title. "
+            "Do not call restore_conversation again unless the user asks for a "
+            "different earlier chat.\n\n"
             + body
         ), False
+    if name in MUTE_TOOL_NAMES:
+        return "Voice parked. Jobs keep running.", False
     if name == "end_conversation":
         return "Goodbye.", True
     return f"Unknown tool: {name}", False

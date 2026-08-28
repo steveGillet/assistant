@@ -9,8 +9,18 @@ Grok Voice does not call MCP itself. You are the local computer-use agent. If MC
 - API key: `XAI_API_KEY` (fallback: `GROK_API_KEY`).
 - Python: `venv/bin/python` in this directory.
 - Helper scripts live in `scripts/`.
-- **Write new files into `generated/`** (papers, audio, podcasts, downloads). Do not scatter them in the repo root.
-- Prefer an existing file in `generated/` before downloading or creating a new one. If the user names a file without a path, look in `generated/`, then the current working directory, then `assets/`.
+
+## Files
+
+`generated/` is Grapefruit's inbox for assistant-local artifacts: papers, audio, podcasts, and downloads made for this machine. Do not scatter those in the repo root or `assets/`.
+
+When the user names a file without a path, look in this order before downloading or creating a duplicate: `generated/`, then the current working directory, then `assets/`.
+
+Where to write new files:
+- Grapefruit-local work (papers, podcasts, helper-script output, downloads for this assistant): `generated/`.
+- A project in another directory: write in that project, using that project's layout. Do not copy those files into `generated/` unless the user asked for a local copy.
+- Remote work over SSH: edit and create files on that machine, in that project directory. Do not copy or `scp` them back into `generated/` unless the user asked to bring a copy home.
+- If the user names a path, use that path.
 
 ## Helper scripts
 
@@ -39,4 +49,4 @@ Play audio or video once with `vlc --play-and-exit` (or `cvlc --play-and-exit`).
 
 ## Style of the final summary
 
-Short sentences. Spoken language. Mention what file was created or played (including the `generated/` path). If something failed, say so briefly instead of claiming success.
+Short sentences. Spoken language. Mention what file was created or played, with its real path. If something failed, say so briefly instead of claiming success.
