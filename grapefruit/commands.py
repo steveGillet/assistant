@@ -106,10 +106,13 @@ def handle_line(
     if cmd == "status":
         return CommandResult(kind="status")
     current_ids = [log.meta.id] if log is not None and log.meta is not None else None
+    log_root = log.root if log is not None else None
     if cmd in {"conversations", "list", "history"}:
         return CommandResult(
             kind="print",
-            text=format_conversation_list(list_conversations(exclude_ids=current_ids)),
+            text=format_conversation_list(
+                list_conversations(log_root, exclude_ids=current_ids)
+            ),
         )
     if cmd in {"restore", "load", "resume"}:
         if muted and not arg:
@@ -117,7 +120,7 @@ def handle_line(
         exclude = current_ids
         if arg and not arg.isdigit() and log is not None:
             exclude = log.exclude_ids()
-        body, meta = load_restore_text(arg, exclude_ids=exclude)
+        body, meta = load_restore_text(arg, root=log_root, exclude_ids=exclude)
         if meta is None:
             return CommandResult(kind="print", text=body)
         if log is not None:

@@ -13,7 +13,7 @@ import threading
 import time
 
 import websockets
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError, InvalidStatus
 
 from grapefruit.commands import handle_line
 from grapefruit.hold import HoldState
@@ -44,6 +44,18 @@ from grapefruit.tools import handle_tool
 
 DEFAULT_IDLE_SEC = int(os.getenv("GROK_VOICE_IDLE_SEC", "600"))
 DEFAULT_AUTO_MUTE_SEC = int(os.getenv("GROK_VOICE_AUTO_MUTE_SEC", "60"))
+
+
+def _handshake_error_text(exc: InvalidStatus) -> str:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) or "?"
+    body = getattr(response, "body", None) or b""
+    if isinstance(body, (bytes, bytearray)):
+        text = body.decode("utf-8", "replace").strip()
+    else:
+        text = str(body).strip()
+    detail = text or str(exc)
+    return f"Voice handshake failed (HTTP {status}): {detail}"
 
 
 def _restore_spoken_title(result: str, fallback: str = "earlier chat") -> str:
@@ -358,13 +370,19 @@ async def _voice_leg(
         except Exception:
             pass
 
-    async with websockets.connect(
-        VOICE_URI,
-        additional_headers=headers,
-        max_size=None,
-        ping_interval=20,
-        ping_timeout=120,
-    ) as ws:
+    try:
+        ws = await websockets.connect(
+            VOICE_URI,
+            additional_headers=headers,
+            max_size=None,
+            ping_interval=20,
+            ping_timeout=120,
+        )
+    except InvalidStatus as exc:
+        ui.error(_handshake_error_text(exc))
+        return "error"
+
+    async with ws:
 
         async def safe_send(payload: dict) -> None:
             async with send_lock:
