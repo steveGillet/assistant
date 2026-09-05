@@ -1,0 +1,38 @@
+# Grapefruit — Grok voice + terminal assistant
+# Python >= 3.11 (see pyproject.toml)
+#
+# System packages (Debian/Ubuntu):
+#   sudo apt install \
+#     vlc ffmpeg poppler-utils wget pulseaudio-utils \
+#     libportaudio2 portaudio19-dev python3-dev
+# Official Grok CLI (computer use):
+#   curl -fsSL https://x.ai/cli/install.sh | bash
+#
+# Setup:
+#   python3 -m venv venv && source venv/bin/activate
+#   pip install -r requirements.txt
+#
+# PyAudio needs PortAudio headers at build time (portaudio19-dev / python3-dev).
+# Playback uses vlc/cvlc, ffplay, paplay, or mpv. Podcast concat uses ffmpeg.
+# Paper extraction uses pdftotext (poppler-utils). Downloads use wget.
+
+# --- core runtime (grokVoice.py / grapefruit/) ---
+websockets==17.1
+PyAudio==0.2.14
+vosk==0.3.45
+requests==2.34.2
+pydub==0.25.1
+openai==3.8.0
+
+# --- tests ---
+pytest==9.1.1
+
+# --- helper scripts (scripts/) ---
+pydantic==2.13.5
+pypdf==6.17.0
+msal==1.38.0
+
+# --- optional: scripts/audioDrama.py sound-effect generation (large) ---
+# torch
+# torchaudio
+# diffusers
