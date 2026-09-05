@@ -7,6 +7,8 @@ __pycache__/
 !assets/ack.wav
 *.pdf
 *.txt
+!requirements.txt
+!requirements-*.txt
 *.mp3
 *.mp4
 *.webm
