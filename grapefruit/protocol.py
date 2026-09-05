@@ -33,6 +33,30 @@ MUTE_PHRASES = frozenset(
     }
 )
 MUTE_TOOL_NAMES = frozenset({"mute_conversation", "mute"})
+SILENT_TOOL_NAMES = frozenset({"silent_mode", "silent"})
+SILENT_PHRASES = frozenset(
+    {
+        "silent",
+        "go silent",
+        "be silent",
+        "go into silent mode",
+        "into silent mode",
+        "silent mode",
+        "enter silent",
+        "enter silent mode",
+    }
+)
+UNSILENT_PHRASES = frozenset(
+    {
+        "unsilent",
+        "go loud",
+        "be loud",
+        "loud mode",
+        "go into loud mode",
+        "into loud mode",
+        "start talking",
+    }
+)
 UNMUTE_PHRASES = frozenset(
     {
         "unmute",
@@ -97,6 +121,18 @@ TOOLS = [
     },
     {
         "type": "function",
+        "name": "silent_mode",
+        "description": (
+            "Leave Voice and switch to silent CLI mode when the user wants "
+            "silent mode, go silent, or type-only Grok CLI. The client closes "
+            "the Voice socket. Typed lines go to Grok CLI. Do not speak after "
+            "calling this. This is not goodbye and not mute/quiet. Do not use "
+            "this for /quit, stop, or I'll be back."
+        ),
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "type": "function",
         "name": "mute_conversation",
         "description": (
             "Park Voice when the user wants quiet, mute, pause, quiet mode, "
@@ -111,8 +147,8 @@ TOOLS = [
         "name": "end_conversation",
         "description": (
             "End the session when the user says goodbye, stop, or types /quit. "
-            "Do not use this for mute, quiet, pause, quiet mode, or I'll be back. "
-            "Those must call mute_conversation instead."
+            "Do not use this for mute, quiet, pause, quiet mode, silent mode, "
+            "or I'll be back. Mute uses mute_conversation. Silent CLI uses silent_mode."
         ),
         "parameters": {"type": "object", "properties": {}},
     },
@@ -161,6 +197,9 @@ handled locally; if the user asks in speech to restore an earlier chat, call
 If they say mute, go quiet, go into quiet mode, or I'll be back, call
 `mute_conversation`. The client parks Voice. Jobs keep running. Do not say
 goodbye. That is not the end of the session.
+If they say silent, go silent, or go into silent mode, call `silent_mode`.
+The client closes Voice. Typed lines go to Grok CLI until they say the wake
+word, go loud, or /unsilent. That is not goodbye and not mute.
 
 ## Objective
 Have a natural spoken conversation. When the user wants computer work done —
@@ -186,7 +225,8 @@ the user asks for a different earlier chat. Nested restore dumps in context
 are history, not a new request.
 If they say goodbye, stop, or type /quit, call `end_conversation`.
 If they want quiet, mute, pause, or I'll be back, call `mute_conversation`.
-Never call `end_conversation` for mute, quiet, pause, quiet mode, or I'll be back.
+If they want silent mode or type-only CLI, call `silent_mode`.
+Never call `end_conversation` for mute, quiet, pause, silent, or I'll be back.
 
 Helper scripts (via AGENTS.md / `run_grok`):
 - scripts/extractAudio.py — generated/paper.txt to generated/extracted_audio.wav
@@ -211,7 +251,8 @@ ALWAYS call `play_file` to play local audio or video. Do not describe playing it
 ALWAYS call `restore_conversation` when the user wants an earlier chat loaded,
 using the topic they said, never this session's title.
 ALWAYS call `mute_conversation` when the user wants Voice quiet, muted, paused, or parked.
-ALWAYS call `end_conversation` only for goodbye, stop, or /quit. Never for quiet or mute.
+ALWAYS call `silent_mode` when the user wants silent CLI mode. Never treat that as goodbye.
+ALWAYS call `end_conversation` only for goodbye, stop, or /quit. Never for quiet, mute, or silent.
 Treat terminal text and voice as the same conversation.
 Write Grapefruit-local files under the generated directory. For other
 directories or remote machines, edit in place and do not copy files home.
@@ -237,6 +278,20 @@ _UNMUTE_SENTENCE = re.compile(
     r"^(?:okay\s+|ok\s+|please\s+)?"
     r"(?:i(?:'m| am)\s+back|"
     r"(?:can you\s+|could you\s+)?(?:unmute|unpause)(?:\s+now)?(?:\s+please)?)$"
+)
+_SILENT_SENTENCE = re.compile(
+    r"^(?:please\s+|just\s+)?"
+    r"(?:can you\s+|could you\s+|would you\s+|i want you to\s+|i'd like you to\s+)?"
+    r"(?:go\s+(?:into\s+)?|be\s+|stay\s+|enter\s+)?"
+    r"silent"
+    r"(?:\s+mode)?(?:\s+now)?(?:\s+please)?$"
+)
+_UNSILENT_SENTENCE = re.compile(
+    r"^(?:please\s+|just\s+|okay\s+|ok\s+)?"
+    r"(?:can you\s+|could you\s+)?"
+    r"(?:go\s+(?:into\s+)?|be\s+|enter\s+)?"
+    r"(?:unsilent|loud)"
+    r"(?:\s+mode)?(?:\s+now)?(?:\s+please)?$"
 )
 
 
@@ -282,6 +337,42 @@ def is_unmute_command(text: str) -> bool:
     if t in UNMUTE_PHRASES:
         return True
     return bool(_UNMUTE_SENTENCE.fullmatch(t))
+
+
+def is_silent_command(text: str) -> bool:
+    raw = (text or "").strip().lower()
+    if raw in {"/silent"}:
+        return True
+    t = _normalize_utterance(raw)
+    if not t or re.search(r"\bunsilent\b", t):
+        return False
+    for chunk in _mute_chunks(raw):
+        if chunk in SILENT_PHRASES or _SILENT_SENTENCE.fullmatch(chunk):
+            return True
+        words = chunk.split()
+        for i in range(len(words)):
+            tail = " ".join(words[i:])
+            if tail in SILENT_PHRASES or _SILENT_SENTENCE.fullmatch(tail):
+                return True
+    return False
+
+
+def is_unsilent_command(text: str) -> bool:
+    raw = (text or "").strip().lower()
+    if raw in {"/unsilent", "/loud"}:
+        return True
+    t = _normalize_utterance(raw).rstrip(".!?")
+    if t in UNSILENT_PHRASES:
+        return True
+    return bool(_UNSILENT_SENTENCE.fullmatch(t))
+
+
+def is_wake_line(text: str, wake_word: str = DEFAULT_WAKE_WORD) -> bool:
+    t = _normalize_utterance(text).rstrip(".!?")
+    word = (wake_word or DEFAULT_WAKE_WORD).lower().strip()
+    if not t or not word:
+        return False
+    return t == word or t == f"hey {word}" or t == f"ok {word}"
 
 
 def user_text_event(text: str) -> dict:

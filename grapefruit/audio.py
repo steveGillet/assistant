@@ -2,22 +2,48 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import contextmanager
+from collections.abc import Iterator
+
+
+@contextmanager
+def hush_alsa() -> Iterator[None]:
+    """Hide ALSA plugin probe spam on stderr while opening PortAudio."""
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        saved = os.dup(2)
+        os.dup2(devnull, 2)
+    except OSError:
+        yield
+        return
+    try:
+        yield
+    finally:
+        try:
+            os.dup2(saved, 2)
+            os.close(saved)
+            os.close(devnull)
+        except OSError:
+            pass
+
 
 def list_input_devices() -> list[tuple[int, str, int]]:
     import pyaudio
 
-    pa = pyaudio.PyAudio()
     devices: list[tuple[int, str, int]] = []
-    try:
-        for index in range(pa.get_device_count()):
-            info = pa.get_device_info_by_index(index)
-            channels = int(info.get("maxInputChannels") or 0)
-            if channels <= 0:
-                continue
-            name = str(info.get("name") or f"device {index}")
-            devices.append((index, name, channels))
-    finally:
-        pa.terminate()
+    with hush_alsa():
+        pa = pyaudio.PyAudio()
+        try:
+            for index in range(pa.get_device_count()):
+                info = pa.get_device_info_by_index(index)
+                channels = int(info.get("maxInputChannels") or 0)
+                if channels <= 0:
+                    continue
+                name = str(info.get("name") or f"device {index}")
+                devices.append((index, name, channels))
+        finally:
+            pa.terminate()
     return devices
 
 

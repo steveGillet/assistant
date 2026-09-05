@@ -32,11 +32,14 @@ from grapefruit.protocol import (
     function_output_event,
     input_audio_append_event,
     is_mute_command,
+    is_silent_command,
     MUTE_TOOL_NAMES,
+    SILENT_TOOL_NAMES,
     session_update_event,
     user_text_event,
 )
 from grapefruit import ui
+from grapefruit.silent import SilentState, handle_silent_line
 from grapefruit.tools import handle_tool
 
 DEFAULT_IDLE_SEC = int(os.getenv("GROK_VOICE_IDLE_SEC", "600"))
@@ -163,6 +166,9 @@ async def _muted_wait(
         action = handle_line(text, log, muted=True)
         if action.kind == "quit":
             return "quit"
+        if action.kind == "silent":
+            ui.status(action.text)
+            return "silent"
         if action.kind == "unmute":
             ui.status(action.text)
             return "unmute"
@@ -181,6 +187,29 @@ async def _muted_wait(
         ui.status("queued until unmute")
         typed.put(text)
         return "unmute"
+
+
+async def _silent_wait(
+    hold: HoldState,
+    typed: queue.Queue[str],
+    log: ConversationLog,
+) -> str:
+    ui.session("silent · grok cli · /unsilent or grapefruit for voice · /quit ends")
+    hold.outcome = "silent"
+    state = SilentState(log=log)
+    while True:
+        hold.consume_finished(log, chime=False)
+        try:
+            text = typed.get_nowait()
+        except queue.Empty:
+            await asyncio.sleep(0.2)
+            continue
+        text = (text or "").strip()
+        if not text:
+            continue
+        outcome = handle_silent_line(text, state)
+        if outcome in {"quit", "unsilent"}:
+            return outcome
 
 
 async def run_session(
@@ -256,6 +285,17 @@ async def run_session(
                     log.meta.title if log.meta else ""
                 )
                 continue
+            if wait != "silent":
+                return wait
+            outcome = "silent"
+        if outcome == "silent" and park_in_process:
+            wait = await _silent_wait(hold, typed, log)
+            if wait == "unsilent":
+                extra = log.context_for_model()
+                spoken_open = hold.take_spoken_recap(
+                    log.meta.title if log.meta else ""
+                )
+                continue
             return wait
         return outcome
     return "idle"
@@ -301,11 +341,14 @@ async def _voice_leg(
         last_activity = time.monotonic()
 
     async def request_mute(reason: str = "muted") -> None:
+        await request_park(reason, "mute")
+
+    async def request_park(reason: str, kind: str) -> None:
         nonlocal session_active, outcome
-        if hold.outcome == "mute":
+        if hold.outcome == kind:
             return
-        hold.outcome = "mute"
-        outcome = "mute"
+        hold.outcome = kind
+        outcome = kind
         ui.status(reason)
         if playback:
             playback.interrupt()
@@ -390,7 +433,16 @@ async def _voice_leg(
                         result, _should_end = handle_tool(name, args)
                         ui.tool_result(result)
                         log.append("tool", result, source="tool", name=name)
-                        await request_mute("muting voice · jobs keep running")
+                        await request_park("muting voice · jobs keep running", "mute")
+                        return
+                    if name in SILENT_TOOL_NAMES:
+                        result, _should_end = handle_tool(name, args)
+                        ui.tool_result(result)
+                        log.append("tool", result, source="tool", name=name)
+                        await request_park(
+                            "silent · grok cli · say grapefruit or /unsilent for voice",
+                            "silent",
+                        )
                         return
                     exclude_ids = log.exclude_ids()
                     label = str(args.get("task") or args.get("query") or name)
@@ -532,6 +584,16 @@ async def _voice_leg(
                     continue
                 bump_activity()
                 action = handle_line(text, log, muted=False)
+                if action.kind == "silent":
+                    ui.status(action.text)
+                    hold.outcome = "silent"
+                    outcome = "silent"
+                    session_active = False
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
+                    break
                 if action.kind == "mute":
                     ui.user(text)
                     log.append("user", text, source="typed")
@@ -682,7 +744,12 @@ async def _voice_leg(
                         bump_activity()
                         ui.heard(transcript)
                         log.append("user", transcript, source="speech")
-                        if is_mute_command(transcript):
+                        if is_silent_command(transcript):
+                            await request_park(
+                                "silent · grok cli · say grapefruit or /unsilent for voice",
+                                "silent",
+                            )
+                        elif is_mute_command(transcript):
                             await request_mute("muting voice · jobs keep running")
 
         async def ready_fallback() -> None:

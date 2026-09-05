@@ -70,9 +70,22 @@ def looks_foreign_work(task: str, *, root: Path = ROOT) -> bool:
     return False
 
 
-def summary_rules_for_task(task: str = "", *, root: Path = ROOT) -> str:
+def summary_rules_for_task(
+    task: str = "",
+    *,
+    root: Path = ROOT,
+    extra: str = "",
+) -> str:
     rules = SUMMARY_RULES
-    if looks_foreign_work(task, root=root):
+    blob = extra.strip()
+    if blob:
+        rules += (
+            " Use the following prior conversation as context. "
+            "Do not read it back. Continue from it.\n\n"
+            + blob
+        )
+    hay = f"{task}\n{blob}"
+    if looks_foreign_work(hay, root=root):
         rules += (
             " This task looks like other-directory or remote work. Edit in place. "
             "Do not copy files into generated/ unless the user asked for a local copy."
@@ -364,6 +377,7 @@ def build_grok_cmd(
     *,
     cwd: Path = ROOT,
     session_id: str | None = None,
+    extra_rules: str = "",
 ) -> list[str]:
     cmd = [
         grok_bin,
@@ -378,7 +392,7 @@ def build_grok_cmd(
         "--leader-socket",
         str(LEADER_SOCK),
         "--rules",
-        summary_rules_for_task(task, root=cwd),
+        summary_rules_for_task(task, root=cwd, extra=extra_rules),
     ]
     if CLI_MAX_TURNS > 0:
         cmd.extend(["--max-turns", str(CLI_MAX_TURNS)])
@@ -395,6 +409,7 @@ def run_grok(
     session_path: Path = SESSION_FILE,
     runner: Runner | None = None,
     popen: Callable | None = None,
+    extra_rules: str = "",
 ) -> str:
     grok_bin = find_grok_bin()
     if not grok_bin:
@@ -404,7 +419,13 @@ def run_grok(
         )
 
     session_id = load_cli_session(session_path)
-    cmd = build_grok_cmd(grok_bin, task, cwd=cwd, session_id=session_id)
+    cmd = build_grok_cmd(
+        grok_bin,
+        task,
+        cwd=cwd,
+        session_id=session_id,
+        extra_rules=extra_rules,
+    )
     env = grok_cli_env()
     ui.cli(task)
 
@@ -458,7 +479,9 @@ def run_grok(
                     session_path.unlink()
                 except FileNotFoundError:
                     pass
-            cmd = build_grok_cmd(grok_bin, task, cwd=cwd, session_id=None)
+            cmd = build_grok_cmd(
+                grok_bin, task, cwd=cwd, session_id=None, extra_rules=extra_rules
+            )
             try:
                 result = invoke(cmd)
             except subprocess.TimeoutExpired as exc:

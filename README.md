@@ -46,6 +46,7 @@ source venv/bin/activate
 python grokVoice.py                 # wake word OR type to start; then both
 python grokVoice.py --no-wake       # session now; speak and/or type
 python grokVoice.py --text-only     # no mic; type, hear replies
+python grokVoice.py --silent        # start in CLI; say grapefruit or /unsilent for Voice
 python grokVoice.py --list-mics     # see capture devices
 python grokVoice.py --mic-device N  # skip the webcam if speakers couple into it
 ```
@@ -59,7 +60,9 @@ Slash commands are handled **locally** (they never go to Voice as a user turn):
 | `/restore [query]` | Load a saved conversation into Voice context |
 | `/conversations` | List saved chats |
 | `/save [title]` | Name the current chat |
-| `/quit` | End the session |
+| `/silent` | Park Voice; typed lines go to Grok CLI |
+| `/unsilent` | Back to Voice (`/loud` is the same) |
+| `/quit` | End Grapefruit |
 
 In speech: “restore the conversation we had about robot manipulators yesterday” makes Voice call `restore_conversation`.
 

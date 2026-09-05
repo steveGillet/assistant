@@ -144,6 +144,19 @@ def test_build_grok_cmd_uses_task_placement_rules(tmp_path):
     assert "Edit in place" in rules
 
 
+def test_build_grok_cmd_hides_restore_in_rules(tmp_path):
+    cmd = build_grok_cmd(
+        "/usr/bin/grok",
+        "set beta to 0.95",
+        cwd=tmp_path,
+        extra_rules="User: ssh into the pi\nAssistant: Done.",
+    )
+    assert cmd[2] == "set beta to 0.95"
+    rules = cmd[cmd.index("--rules") + 1]
+    assert "ssh into the pi" in rules
+    assert "prior conversation" in rules.lower()
+
+
 def test_timeout_message_mentions_credits():
     msg = _timeout_message(600)
     assert "timed out" in msg.lower()

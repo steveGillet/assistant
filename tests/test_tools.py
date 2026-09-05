@@ -90,6 +90,12 @@ def test_handle_end_conversation():
     assert "Goodbye" in result
 
 
+def test_handle_silent_mode_does_not_end():
+    result, should_end = handle_tool("silent_mode", {})
+    assert should_end is False
+    assert "silent" in result.lower()
+
+
 def test_handle_mute_conversation_does_not_end():
     result, should_end = handle_tool("mute_conversation", {})
     assert should_end is False

@@ -18,6 +18,12 @@ def test_parse_text_only_and_voice():
     assert args.no_wake is True
 
 
+def test_parse_silent():
+    assert parse_args(["--silent"]).silent is True
+    assert parse_args(["--cli"]).silent is True
+    assert parse_args([]).silent is False
+
+
 def test_parse_mic_and_barge_in():
     args = parse_args(["--mic-device", "3", "--barge-in"])
     assert args.mic_device == 3

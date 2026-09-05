@@ -8,7 +8,7 @@ from pathlib import Path
 from grapefruit.grok_cli import run_grok
 from grapefruit.memory import load_restore_text
 from grapefruit.paths import GENERATED, ROOT, ack_wav
-from grapefruit.protocol import MUTE_TOOL_NAMES
+from grapefruit.protocol import MUTE_TOOL_NAMES, SILENT_TOOL_NAMES
 from grapefruit.search import web_search, x_search
 
 
@@ -91,6 +91,8 @@ def handle_tool(
         ), False
     if name in MUTE_TOOL_NAMES:
         return "Voice parked. Jobs keep running.", False
+    if name in SILENT_TOOL_NAMES:
+        return "Switching to silent CLI mode.", False
     if name == "end_conversation":
         return "Goodbye.", True
     return f"Unknown tool: {name}", False

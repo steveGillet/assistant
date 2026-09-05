@@ -11,12 +11,19 @@ from grapefruit.memory import (
     load_restore_text,
     recap_from_restore_text,
 )
-from grapefruit.protocol import is_mute_command, is_quit_command, is_unmute_command
+from grapefruit.protocol import (
+    is_mute_command,
+    is_quit_command,
+    is_silent_command,
+    is_unmute_command,
+    is_unsilent_command,
+    is_wake_line,
+)
 
 
 @dataclass
 class CommandResult:
-    kind: str  # passthrough | quit | print | restore | save | help | mute | unmute | status
+    kind: str  # passthrough | quit | print | restore | save | help | mute | unmute | status | silent | unsilent
     text: str = ""
     restore_body: str = ""
     restore_title: str = ""
@@ -30,7 +37,12 @@ def parse_slash(text: str) -> tuple[str, str] | None:
     return cmd.lower().strip(), rest.strip()
 
 
-def help_text() -> str:
+def help_text(*, silent: bool = False) -> str:
+    extra = (
+        "Anything else is sent to Grok CLI."
+        if silent
+        else "Anything else is sent to Grok Voice as a user turn."
+    )
     return (
         "Commands:\n"
         "  /quit            end this session (or exit while idle)\n"
@@ -39,11 +51,13 @@ def help_text() -> str:
         "  /restore 1       restore by list number\n"
         "  /restore pi      restore by topic words, never the current chat name\n"
         "  /resume          same as /restore; while muted, resumes this session\n"
-        "  /mute            park Voice; jobs keep running (/pause is the same)\n"
-        "  /unmute          reopen this session and hear a recap\n"
+        "  /silent          CLI only; Voice parks (say grapefruit or /unsilent to talk)\n"
+        "  /unsilent        back to Voice (/loud is the same)\n"
+        "  /mute            park Voice and wait; jobs keep running (/pause is the same)\n"
+        "  /unmute          reopen Voice and hear a recap\n"
         "  /status          show running jobs\n"
         "  /save [title]    set the title of the current conversation\n"
-        "Anything else is sent to Grok Voice as a user turn."
+        f"{extra}"
     )
 
 
@@ -52,14 +66,23 @@ def handle_line(
     log: ConversationLog | None = None,
     *,
     muted: bool = False,
+    silent: bool = False,
 ) -> CommandResult:
     raw = (text or "").strip()
     if is_quit_command(raw):
         return CommandResult(kind="quit")
-    if is_unmute_command(raw):
-        return CommandResult(kind="unmute", text="Unmuting this session.")
-    if is_mute_command(raw):
-        return CommandResult(kind="mute", text="Muting voice. Jobs keep running.")
+    if silent:
+        if is_unsilent_command(raw) or is_unmute_command(raw) or is_wake_line(raw):
+            return CommandResult(kind="unsilent", text="Returning to Voice.")
+        if is_silent_command(raw):
+            return CommandResult(kind="print", text="Already in silent CLI mode.")
+    if not silent:
+        if is_silent_command(raw):
+            return CommandResult(kind="silent", text="Switching to silent CLI mode.")
+        if is_unmute_command(raw):
+            return CommandResult(kind="unmute", text="Unmuting this session.")
+        if is_mute_command(raw):
+            return CommandResult(kind="mute", text="Muting voice. Jobs keep running.")
     parsed = parse_slash(raw)
     if parsed is None:
         return CommandResult(kind="passthrough", text=raw)
@@ -67,7 +90,15 @@ def handle_line(
     if cmd in {"quit", "exit", "stop", "goodbye"}:
         return CommandResult(kind="quit")
     if cmd in {"help", "h", "?"}:
-        return CommandResult(kind="help", text=help_text())
+        return CommandResult(kind="help", text=help_text(silent=silent))
+    if cmd == "silent":
+        if silent:
+            return CommandResult(kind="print", text="Already in silent CLI mode.")
+        return CommandResult(kind="silent", text="Switching to silent CLI mode.")
+    if cmd in {"unsilent", "loud"}:
+        if not silent:
+            return CommandResult(kind="print", text="Voice is already live.")
+        return CommandResult(kind="unsilent", text="Returning to Voice.")
     if cmd in {"mute", "pause"}:
         return CommandResult(kind="mute", text="Muting voice. Jobs keep running.")
     if cmd in {"unmute", "unpause"}:

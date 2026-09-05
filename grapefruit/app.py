@@ -10,8 +10,10 @@ from grapefruit.audio import print_input_devices
 from grapefruit.env import get_xai_api_key
 from grapefruit.grok_cli import find_grok_bin
 from grapefruit.paths import ensure_dirs
+from grapefruit.hold import HoldState
 from grapefruit.protocol import DEFAULT_VOICE, DEFAULT_WAKE_WORD
 from grapefruit.session import run_session, start_stdin_thread
+from grapefruit.silent import run_silent
 from grapefruit.wake import listen_for_wake_word
 
 
@@ -35,6 +37,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--text-only",
         action="store_true",
         help="No microphone. Type in the terminal; replies still play as speech.",
+    )
+    parser.add_argument(
+        "--silent",
+        "--cli",
+        action="store_true",
+        help="No Voice. Type tasks to Grok CLI and print text only.",
     )
     parser.add_argument(
         "--no-speaker",
@@ -75,16 +83,73 @@ def main(argv: list[str] | None = None) -> None:
     if args.list_mics:
         print_input_devices()
         return
-    api_key = get_xai_api_key()
     grok_bin = find_grok_bin()
     ui.banner(grok_bin)
     if not grok_bin:
         ui.error("official grok CLI not found · curl -fsSL https://x.ai/cli/install.sh | bash")
 
+    api_key = get_xai_api_key(required=not args.silent)
     typed: queue.Queue[str] = queue.Queue()
-    if sys.stdin.isatty() or args.text_only:
+    if sys.stdin.isatty() or args.text_only or args.silent:
         start_stdin_thread(typed)
         ui.status("type a line · /restore · /conversations · /help · /quit")
+
+    if args.silent and args.text_only:
+        if not grok_bin:
+            return
+        from grapefruit.memory import ConversationLog
+
+        log = ConversationLog()
+        log.start("")
+        while True:
+            outcome = run_silent(log=log, typed=typed)
+            if outcome != "unsilent" or not api_key:
+                return
+            hold = HoldState()
+            hold.log = log
+            voice_out = asyncio.run(
+                run_session(
+                    api_key,
+                    args.voice.lower(),
+                    enable_mic=False,
+                    enable_speaker=not args.no_speaker,
+                    typed=typed,
+                    idle_sec=args.idle_sec,
+                    hold=hold,
+                    log=log,
+                    park_in_process=True,
+                )
+            )
+            if voice_out == "quit":
+                return
+            if voice_out in {"silent", "idle", "mute"}:
+                continue
+            return
+
+    if args.silent:
+        if not grok_bin:
+            return
+        if not api_key:
+            ui.status("no XAI_API_KEY · silent cli works · voice needs a key")
+        voice = args.voice.lower()
+        enable_mic = not args.text_only
+        enable_speaker = not args.no_speaker
+        if enable_mic and args.mic_device is not None:
+            ui.status(f"mic device {args.mic_device}")
+        listen_for_wake_word(
+            args.wake_word.lower(),
+            api_key or "",
+            voice,
+            typed=typed,
+            enable_mic=enable_mic,
+            enable_speaker=enable_speaker,
+            mic_device=args.mic_device,
+            mute_mic_while_speaking=not args.barge_in,
+            voice_barge_in=args.barge_in,
+            idle_sec=args.idle_sec,
+            start_silent=True,
+        )
+        return
 
     voice = args.voice.lower()
     enable_mic = not args.text_only
@@ -105,11 +170,13 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     if args.text_only or args.no_wake:
-        asyncio.run(
+        hold = HoldState()
+        outcome = asyncio.run(
             run_session(
                 api_key,
                 voice,
                 park_in_process=True,
+                hold=hold,
                 **session_kwargs,
             )
         )

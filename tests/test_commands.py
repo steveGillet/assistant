@@ -21,7 +21,19 @@ def test_help():
     assert "/restore" in result.text
     assert "/resume" in result.text
     assert "/mute" in result.text
+    assert "/silent" in result.text
     assert "same as /restore" in result.text
+    silent_help = handle_line("/help")
+    assert "Grok Voice" in silent_help.text or "user turn" in silent_help.text
+    from grapefruit.commands import help_text
+
+    assert "Grok CLI" in help_text(silent=True)
+    assert handle_line("/silent").kind == "silent"
+    assert handle_line("go into silent mode").kind == "silent"
+    assert handle_line("/silent", silent=True).kind == "print"
+    assert handle_line("/unsilent", silent=True).kind == "unsilent"
+    assert handle_line("go loud", silent=True).kind == "unsilent"
+    assert handle_line("grapefruit", silent=True).kind == "unsilent"
 
 
 def test_save_title(tmp_path):
