@@ -56,6 +56,12 @@ def test_mute_phrases():
     assert is_wake_line("grapefruit")
     assert is_wake_line("Hey grapefruit.")
     assert not is_wake_line("grapefruit conversation")
+    from grapefruit.protocol import contains_wake_word
+
+    assert contains_wake_word("hey grapefruit")
+    assert contains_wake_word("grape fruit")
+    assert contains_wake_word("okay great fruit")
+    assert not contains_wake_word("apple juice")
 
 
 def test_user_text_event_shape():

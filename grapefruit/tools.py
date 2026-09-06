@@ -101,7 +101,16 @@ def handle_tool(
 def play_ack() -> None:
     ack = ack_wav()
     if ack is not None and shutil.which("paplay"):
-        subprocess.run(["paplay", str(ack)], check=False)
+        try:
+            subprocess.run(
+                ["paplay", str(ack)],
+                check=False,
+                timeout=2,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return
         return
     try:
         import pyaudio

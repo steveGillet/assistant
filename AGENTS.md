@@ -47,6 +47,8 @@ Long jobs (podcast, paper-to-audio, long scripts) should be started and allowed 
 
 Play audio or video once with `vlc --play-and-exit` (or `cvlc --play-and-exit`). Run playback in the background so the CLI can return a summary.
 
+Do **not** restart PipeWire, WirePlumber, or PulseAudio. Grapefruit keeps the microphone open; killing the audio stack can freeze or crash the desktop. Do not change the default sink or source to a Bluetooth device while Grapefruit is running. Diagnose Bluetooth, write a script if needed, and tell the user to run it after they quit Grapefruit.
+
 ## Style of the final summary
 
 Short sentences. Spoken language. Mention what file was created or played, with its real path. If something failed, say so briefly instead of claiming success.

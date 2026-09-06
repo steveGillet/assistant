@@ -375,6 +375,31 @@ def is_wake_line(text: str, wake_word: str = DEFAULT_WAKE_WORD) -> bool:
     return t == word or t == f"hey {word}" or t == f"ok {word}"
 
 
+def contains_wake_word(text: str, wake_word: str = DEFAULT_WAKE_WORD) -> bool:
+    """True if Vosk (final or partial) likely heard the wake word.
+
+    Vosk often splits compound words, so 'grape fruit' counts for grapefruit.
+    """
+    t = _normalize_utterance(text)
+    word = (wake_word or DEFAULT_WAKE_WORD).lower().strip()
+    if not t or not word:
+        return False
+    if word in t.split() or word in t.replace(" ", ""):
+        return True
+    if word == "grapefruit" and any(
+        phrase in t
+        for phrase in (
+            "grape fruit",
+            "great fruit",
+            "gray fruit",
+            "grey fruit",
+            "grap fruit",
+        )
+    ):
+        return True
+    return False
+
+
 def user_text_event(text: str) -> dict:
     return {
         "type": "conversation.item.create",

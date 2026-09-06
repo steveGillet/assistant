@@ -37,7 +37,10 @@ SUMMARY_RULES = (
     "If the user names a file without a path, look in generated/, then cwd, "
     "then assets/ before downloading. "
     "If this task is in another directory or on another machine, edit in place. "
-    "Do not copy those files into generated/ unless the user asked for a local copy."
+    "Do not copy those files into generated/ unless the user asked for a local copy. "
+    "Do not restart PipeWire, WirePlumber, or PulseAudio, and do not change the "
+    "default audio sink or source. Grapefruit holds the microphone; restarting "
+    "the audio stack can freeze the machine."
 )
 _FOREIGN_HOST = re.compile(
     r"\b(ssh|scp|sftp)\b|\b\w+@[\w.-]+|\bon the pi\b|\bon the raspberry\b",

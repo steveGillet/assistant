@@ -15,7 +15,12 @@ from grapefruit.commands import handle_line
 from grapefruit.hold import HoldState
 from grapefruit.paths import vosk_model_dir
 from grapefruit.memory import ConversationLog
-from grapefruit.protocol import WAKE_RATE, is_unmute_command, is_unsilent_command
+from grapefruit.protocol import (
+    WAKE_RATE,
+    contains_wake_word,
+    is_unmute_command,
+    is_unsilent_command,
+)
 from grapefruit.env import get_xai_api_key
 from grapefruit.session import run_session
 from grapefruit.silent import SilentState, handle_silent_line
@@ -123,7 +128,10 @@ def listen_for_wake_word(
 
     def launch_session(**extra):
         nonlocal parked_log, silent_state
-        stream.stop_stream()
+        try:
+            stream.stop_stream()
+        except Exception:
+            pass
         try:
             kwargs = dict(session_kwargs)
             kwargs.update(extra)
@@ -152,7 +160,16 @@ def listen_for_wake_word(
             silent_state = None
         time.sleep(0.5)
         recognizer_reset = KaldiRecognizer(vosk_model, WAKE_RATE)
-        stream.start_stream()
+        try:
+            if not stream.is_active():
+                stream.start_stream()
+        except Exception:
+            ui.error("mic stream died after the session; say the wake word after a moment")
+        while True:
+            try:
+                chunks.get_nowait()
+            except queue.Empty:
+                break
         if hold.outcome == "silent":
             ui.status(
                 f"silent · grok cli · say “{wake_word}” or /unsilent for voice · /quit ends"
@@ -245,22 +262,24 @@ def listen_for_wake_word(
                 data = chunks.get_nowait()
             except queue.Empty:
                 continue
-            if not recognizer.AcceptWaveform(data):
-                continue
-            heard = json.loads(recognizer.Result()).get("text", "").lower()
+            if recognizer.AcceptWaveform(data):
+                heard = json.loads(recognizer.Result()).get("text", "") or ""
+            else:
+                heard = json.loads(recognizer.PartialResult()).get("partial", "") or ""
+            heard = heard.lower()
             parked = hold.outcome in {"mute", "silent"}
-            if hold.outcome == "mute" and hold.busy():
-                continue
+            woke = contains_wake_word(heard, wake_word)
             come_back = parked and (
-                wake_word in heard
-                or is_unmute_command(heard)
-                or is_unsilent_command(heard)
+                woke or is_unmute_command(heard) or is_unsilent_command(heard)
             )
-            if not come_back and wake_word not in heard:
+            if not come_back and not woke:
                 continue
 
             ui.status(f"wake “{wake_word}”")
-            play_ack()
+            try:
+                play_ack()
+            except Exception:
+                pass
             time.sleep(0.15)
             extra = ""
             opening = ""
