@@ -16,6 +16,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, InvalidStatus
 
 from grapefruit.commands import handle_line
+from grapefruit.env import get_xai_api_key, refresh_grok_cli_token
 from grapefruit.hold import HoldState
 from grapefruit.memory import (
     ConversationLog,
@@ -56,6 +57,25 @@ def _handshake_error_text(exc: InvalidStatus) -> str:
         text = str(body).strip()
     detail = text or str(exc)
     return f"Voice handshake failed (HTTP {status}): {detail}"
+
+
+def _handshake_status(exc: InvalidStatus) -> int | None:
+    return getattr(getattr(exc, "response", None), "status_code", None)
+
+
+async def _open_voice_ws(headers: dict):
+    return await websockets.connect(
+        VOICE_URI,
+        additional_headers=headers,
+        max_size=None,
+        ping_interval=20,
+        ping_timeout=120,
+    )
+
+
+def _voice_headers(api_key: str) -> dict[str, str]:
+    key = get_xai_api_key(required=False) or api_key
+    return {"Authorization": f"Bearer {key}"}
 
 
 def _restore_spoken_title(result: str, fallback: str = "earlier chat") -> str:
@@ -370,17 +390,29 @@ async def _voice_leg(
         except Exception:
             pass
 
+    headers = _voice_headers(api_key)
     try:
-        ws = await websockets.connect(
-            VOICE_URI,
-            additional_headers=headers,
-            max_size=None,
-            ping_interval=20,
-            ping_timeout=120,
-        )
+        ws = await _open_voice_ws(headers)
     except InvalidStatus as exc:
-        ui.error(_handshake_error_text(exc))
-        return "error"
+        status = _handshake_status(exc)
+        if status in {401, 403}:
+            refreshed = refresh_grok_cli_token()
+            if refreshed:
+                try:
+                    ws = await _open_voice_ws(
+                        {"Authorization": f"Bearer {refreshed}"}
+                    )
+                except InvalidStatus as retry_exc:
+                    ui.error(_handshake_error_text(retry_exc))
+                    ui.error("Voice token expired. Run `grok login` and try again.")
+                    return "error"
+            else:
+                ui.error(_handshake_error_text(exc))
+                ui.error("Voice token expired. Run `grok login` and try again.")
+                return "error"
+        else:
+            ui.error(_handshake_error_text(exc))
+            return "error"
 
     async with ws:
 

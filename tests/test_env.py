@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -63,7 +64,42 @@ def test_read_grok_cli_token_skips_expired(tmp_path):
         '"expires_at": "2026-09-05T18:00:00Z"}}'
     )
     assert read_grok_cli_token(path, now=now) == "eyJ-live"
-    assert read_grok_cli_token(path, now=now + timedelta(hours=8)) is None
+    assert read_grok_cli_token(path, now=now + timedelta(hours=8), refresh=False) is None
+
+
+def test_read_grok_cli_token_refreshes_expired(tmp_path, monkeypatch):
+    now = datetime(2026, 9, 5, 12, tzinfo=timezone.utc)
+    path = tmp_path / "auth.json"
+    path.write_text(
+        json.dumps(
+            {
+                "https://auth.x.ai::id": {
+                    "key": "eyJ-expired",
+                    "refresh_token": "refresh-1",
+                    "expires_at": "2026-09-05T08:00:00Z",
+                    "oidc_issuer": "https://auth.x.ai",
+                    "oidc_client_id": "client-1",
+                }
+            }
+        )
+    )
+
+    def fake_post(*, token_endpoint, client_id, refresh_token):
+        assert token_endpoint == "https://auth.x.ai/oauth2/token"
+        assert client_id == "client-1"
+        assert refresh_token == "refresh-1"
+        return {
+            "access_token": "eyJ-fresh",
+            "refresh_token": "refresh-2",
+            "expires_in": 3600,
+        }
+
+    monkeypatch.setattr("grapefruit.env.post_refresh_token", fake_post)
+    assert read_grok_cli_token(path, now=now) == "eyJ-fresh"
+    saved = json.loads(path.read_text())
+    entry = next(iter(saved.values()))
+    assert entry["key"] == "eyJ-fresh"
+    assert entry["refresh_token"] == "refresh-2"
 
 
 def test_grok_cli_env_copies_legacy_key(monkeypatch):

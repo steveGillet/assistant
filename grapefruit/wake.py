@@ -16,6 +16,7 @@ from grapefruit.hold import HoldState
 from grapefruit.paths import vosk_model_dir
 from grapefruit.memory import ConversationLog
 from grapefruit.protocol import WAKE_RATE, is_unmute_command, is_unsilent_command
+from grapefruit.env import get_xai_api_key
 from grapefruit.session import run_session
 from grapefruit.silent import SilentState, handle_silent_line
 from grapefruit.tools import play_ack
@@ -128,7 +129,8 @@ def listen_for_wake_word(
             kwargs.update(extra)
             if parked_log is not None:
                 kwargs["log"] = parked_log
-            outcome = asyncio.run(run_session(api_key, voice, **kwargs))
+            key = get_xai_api_key(required=False) or api_key
+            outcome = asyncio.run(run_session(key, voice, **kwargs))
             if outcome == "silent":
                 enter_silent(hold.log)
             elif outcome == "mute":
